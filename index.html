@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rain Filter</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#111;color:#ddd;font-family:system-ui,sans-serif;display:flex;flex-direction:column;min-height:100vh}
+header{padding:10px 14px;background:#1b1b1f;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;border-bottom:1px solid #333}
+label{font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+input[type=range]{width:110px}
+input[type=color]{width:38px;height:26px;border:none;background:none;padding:0}
+button,.btn{background:#2d6cdf;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px}
+button.sec{background:#444}
+main{flex:1;display:flex;align-items:center;justify-content:center;padding:10px;overflow:auto}
+canvas{max-width:100%;max-height:calc(100vh - 120px);background:#000;box-shadow:0 0 20px #000}
+input[type=file]{display:none}
+select{background:#222;color:#ddd;border:1px solid #444;padding:3px}
+</style>
+</head>
+<body>
+<header>
+<label class="btn" style="cursor:pointer">画像を開く<input type="file" id="file" accept="image/*"></label>
+<button class="sec" id="sample">サンプル背景</button>
+<label>雨の色<input type="color" id="color" value="#a0c8ff"></label>
+<label>量<input type="range" id="density" min="50" max="3000" value="900"><span id="vDensity">900</span></label>
+<label>長さ<input type="range" id="len" min="5" max="120" value="40"><span id="vLen">40</span></label>
+<label>太さ<input type="range" id="width" min="1" max="6" step="0.5" value="1.5"><span id="vWidth">1.5</span></label>
+<label>角度<input type="range" id="angle" min="-45" max="45" value="12"><span id="vAngle">12</span></label>
+<label>不透明度<input type="range" id="alpha" min="5" max="100" value="55"><span id="vAlpha">55</span></label>
+<label>色の重なり<select id="blend"><option value="source-over">通常</option><option value="screen" selected>スクリーン</option><option value="lighter">加算</option><option value="overlay">オーバーレイ</option></select></label>
+<label>暗さ<input type="range" id="dark" min="0" max="80" value="25"><span id="vDark">25</span></label>
+<label>色味<input type="range" id="tint" min="0" max="80" value="20"><span id="vTint">20</span></label>
+<label>霧<input type="range" id="mist" min="0" max="80" value="15"><span id="vMist">15</span></label>
+<label>シード<input type="number" id="seed" value="1" style="width:60px"></label>
+<button id="regen">再生成</button>
+<button id="save">PNG保存</button>
+<button id="saveT">透過PNG保存(雨のみ)</button>
+</header>
+<main><canvas id="cv" width="960" height="600"></canvas></main>
+<script>
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let base=document.createElement('canvas');
+const $=id=>document.getElementById(id);
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function sample(){
+ base.width=960;base.height=600;const b=base.getContext('2d');
+ const g=b.createLinearGradient(0,0,0,600);g.addColorStop(0,'#2a3446');g.addColorStop(.6,'#566070');g.addColorStop(1,'#1c2028');
+ b.fillStyle=g;b.fillRect(0,0,960,600);
+ const r=rng(7);
+ for(let i=0;i<18;i++){const x=i*55+r()*20,h=120+r()*260,w=40+r()*40;b.fillStyle=`rgb(${25+r()*25|0},${30+r()*25|0},${40+r()*30|0})`;b.fillRect(x,600-h,w,h);
+  for(let j=0;j<h/18;j++)for(let k=0;k<w/14;k++)if(r()<.3){b.fillStyle='rgba(255,220,140,.8)';b.fillRect(x+4+k*14,600-h+6+j*18,6,8)}}
+ draw();
+}
+function draw(){
+ const W=base.width,H=base.height;cv.width=W;cv.height=H;
+ ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;
+ ctx.drawImage(base,0,0);
+ const col=$('color').value;
+ const rgb=[1,3,5].map(i=>parseInt(col.substr(i,2),16));
+ // 暗さ
+ ctx.fillStyle=`rgba(0,0,0,${$('dark').value/100})`;ctx.fillRect(0,0,W,H);
+ // 色味
+ ctx.fillStyle=`rgba(${rgb},${$('tint').value/100})`;ctx.fillRect(0,0,W,H);
+ // 霧
+ const mg=ctx.createLinearGradient(0,0,0,H);
+ mg.addColorStop(0,`rgba(${rgb},0)`);mg.addColorStop(1,`rgba(${rgb},${$('mist').value/100})`);
+ ctx.fillStyle=mg;ctx.fillRect(0,0,W,H);
+ // 雨
+ drawRain(ctx,W,H,$('blend').value);
+ ctx.globalCompositeOperation='source-over';
+}
+function drawRain(c,W,H,blend){
+ const col=$('color').value;
+ const rgb=[1,3,5].map(i=>parseInt(col.substr(i,2),16));
+ const r=rng(+$('seed').value||1);
+ const n=+$('density').value,L=+$('len').value,lw=+$('width').value,a=$('angle').value*Math.PI/180,al=$('alpha').value/100;
+ const sc=Math.max(W,H)/960;
+ c.globalCompositeOperation=blend;
+ c.lineCap='round';
+ const dx=Math.sin(a),dy=Math.cos(a);
+ for(let i=0;i<n;i++){
+  const z=.3+r()*.7; // 奥行き
+  const x=r()*(W+H*0.8)-H*0.4,y=r()*H;
+  const l=L*z*sc*(.7+r()*.6);
+  c.strokeStyle=`rgba(${rgb},${al*z})`;
+  c.lineWidth=lw*z*sc;
+  c.beginPath();c.moveTo(x,y);c.lineTo(x+dx*l,y+dy*l);c.stroke();
+ }
+ c.globalCompositeOperation='source-over';
+}
+$('file').onchange=e=>{
+ const f=e.target.files[0];if(!f)return;
+ const img=new Image();img.onload=()=>{
+  let w=img.width,h=img.height;const m=2400;if(Math.max(w,h)>m){const s=m/Math.max(w,h);w=w*s|0;h=h*s|0}
+  base.width=w;base.height=h;base.getContext('2d').drawImage(img,0,0,w,h);draw();URL.revokeObjectURL(img.src)};
+ img.src=URL.createObjectURL(f);
+};
+['color','density','len','width','angle','alpha','blend','dark','tint','mist','seed'].forEach(id=>{
+ $(id).addEventListener('input',()=>{const v=$('v'+id[0].toUpperCase()+id.slice(1));if(v)v.textContent=$(id).value;draw()});
+});
+$('regen').onclick=()=>{$('seed').value=Math.floor(Math.random()*99999);draw()};
+$('sample').onclick=sample;
+$('save').onclick=()=>{cv.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='rain_filter.png';a.click()})};
+$('saveT').onclick=()=>{
+ const t=document.createElement('canvas');t.width=base.width;t.height=base.height;
+ drawRain(t.getContext('2d'),t.width,t.height,'source-over');
+ t.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='rain_transparent.png';a.click()});
+};
+sample();
+</script>
+</body>
+</html>
